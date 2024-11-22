@@ -1,0 +1,244 @@
+#include <iostream>
+#include <map>
+#include <string>
+#include <cstdlib>
+#include <ctime>
+#include <thread>
+#include <chrono>
+#include <stdexcept>
+#include <limits>
+#include <vector>
+#include <algorithm>
+
+// Base class for Stock
+class Stock {
+public:
+    std::string symbol;
+    double price;
+
+    Stock(std::string sym, double initialPrice) : symbol(sym), price(initialPrice) {}
+
+    virtual void updatePrice() {
+        double percentageChange = (rand() % 1001 - 500) / 10000.0;
+        price += price * percentageChange;
+        if (price < 1) price = 1; // Ensure the price doesn't go below 1
+    }
+
+    virtual ~Stock() = default; // Virtual destructor for base class
+};
+
+// Derived class for TrackedStock with alert functionality
+class TrackedStock : public Stock {
+public:
+    double alertThreshold;
+
+    TrackedStock(std::string sym, double initialPrice) 
+        : Stock(sym, initialPrice), alertThreshold(0) {}
+
+    void setAlert(double threshold) {
+        alertThreshold = threshold;
+    }
+
+    bool checkAlert() const {
+        return price >= alertThreshold && alertThreshold > 0;
+    }
+
+    void resetAlert() {
+        alertThreshold = 0;
+    }
+
+    void updatePrice() override {
+        Stock::updatePrice(); // Call base class update
+        if (checkAlert()) {
+            std::cout << "Alert! " << symbol << " has reached the alert price of $" << alertThreshold << std::endl;
+            resetAlert(); 
+        }
+    }
+};
+
+class Portfolio {
+private:
+    std::map<std::string, int> holdings;
+    std::map<std::string, double> purchasePrices; // Track purchase prices for stocks
+    double balance;
+
+public:
+    Portfolio(double initialBalance) : balance(initialBalance) {}
+
+    void buyStock(const Stock& stock, int quantity) {
+        double totalCost = stock.price * quantity;
+        if (totalCost > balance) {
+            throw std::runtime_error("Insufficient balance to buy stock.");
+        }
+        balance -= totalCost;
+        holdings[stock.symbol] += quantity;
+
+        // Store the purchase price for the stock
+        if (purchasePrices.find(stock.symbol) == purchasePrices.end()) {
+            purchasePrices[stock.symbol] = stock.price; // Record purchase price only once
+        }
+
+        std::cout << "Bought " << quantity << " shares of " << stock.symbol << " for $" << totalCost << std::endl;
+    }
+
+    void sellStock(const Stock& stock, int quantity) {
+        if (holdings[stock.symbol] < quantity) {
+            throw std::runtime_error("Insufficient shares to sell.");
+        }
+        holdings[stock.symbol] -= quantity;
+        double totalSale = stock.price * quantity;
+        balance += totalSale;
+
+        // Calculate profit/loss
+        double purchasePrice = purchasePrices[stock.symbol];
+        double profitOrLoss = (stock.price - purchasePrice) * quantity;
+        double percentageChange = (profitOrLoss / (purchasePrice * quantity)) * 100;
+
+        std::cout << "Sold " << quantity << " shares of " << stock.symbol << " for $" << totalSale << std::endl;
+        std::cout << "Profit/Loss: $" << profitOrLoss << " (" << percentageChange << "%)" << std::endl;
+
+        // Optional: Remove stock from purchasePrices if all shares are sold
+        if (holdings[stock.symbol] == 0) {
+            purchasePrices.erase(stock.symbol);
+        }
+    }
+
+    void displayPortfolio(const std::vector<Stock*>& stocks) {
+        std::cout << "Current Portfolio:\n";
+        for (const auto& [symbol, quantity] : holdings) {
+            if (quantity > 0) {
+                double currentPrice = 0;
+                for (const auto& stock : stocks) {
+                    if (stock->symbol == symbol) {
+                        currentPrice = stock->price;
+                        break;
+                    }
+                }
+
+                double purchasePrice = purchasePrices[symbol];
+                double totalInvestment = purchasePrice * quantity;
+                double currentValue = currentPrice * quantity;
+                double profitOrLoss = currentValue - totalInvestment;
+                std::string profitLossStatus = profitOrLoss >= 0 ? "Profit" : "Loss";
+
+                std::cout << "Stock: " << symbol
+                          << ", Shares: " << quantity
+                          << ", Current Price: $" << currentPrice
+                          << ", Total Investment: $" << totalInvestment
+                          << ", Current Value: $" << currentValue
+                          << ", " << profitLossStatus << ": $" << std::abs(profitOrLoss) << std::endl;
+            }
+        }
+        std::cout << "Available Balance: $" << balance << std::endl;
+    }
+
+    double getBalance() const { return balance; }
+};
+
+void simulateRealTimeStock(std::vector<Stock*>& stocks, int durationSeconds) {
+    for (int i = 0; i < durationSeconds; ++i) {
+        for (auto& stock : stocks) {
+            stock->updatePrice();
+            std::cout << "Updated Price of " << stock->symbol << ": $" << stock->price << std::endl;
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+
+template <typename T>
+T safeInput(const std::string& prompt) {
+    T value;
+    while (true) {
+        std::cout << prompt;
+        std::cin >> value;
+        if (std::cin.fail()) {
+            std::cin.clear();
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            std::cout << "Invalid input. Please enter a valid value.\n";
+        } else {
+            return value;
+        }
+    }
+}
+
+void displayStockPrices(const std::vector<Stock*>& stocks) {
+    std::cout << "\nCurrent Stock Prices:\n";
+    for (const auto& stock : stocks) {
+        std::cout << "Stock: " << stock->symbol << ", Price: $" << stock->price << std::endl;
+    }
+}
+
+int main() {
+    srand(static_cast<unsigned int>(time(0))); 
+
+    std::vector<Stock*> stocks = {
+        new TrackedStock("AAPL", 150.0),
+        new TrackedStock("GOOGL", 2800.0),
+        new TrackedStock("AMZN", 3500.0),
+        new Stock("MSFT", 300.0),
+        new Stock("TSLA", 700.0)
+    };
+
+    Portfolio userPortfolio(1000.0);
+
+    try {
+        static_cast<TrackedStock*>(stocks[0])->setAlert(155.0);
+        static_cast<TrackedStock*>(stocks[1])->setAlert(2900.0);
+        static_cast<TrackedStock*>(stocks[2])->setAlert(3600.0);
+
+        std::cout << "Simulating stock price updates for 5 seconds...\n";
+        std::thread simulationThread(simulateRealTimeStock, std::ref(stocks), 5);
+        simulationThread.join();
+
+        int choice;
+        do {
+            std::cout << "\nMenu:\n1. Buy Stock\n2. Sell Stock\n3. Display Portfolio\n4. Display Stock Prices\n5. Update Stock Prices\n6. Exit\n";
+            choice = safeInput<int>("Enter your choice: ");
+
+            if (choice == 1) {
+                std::string stockSymbol = safeInput<std::string>("Enter stock symbol to buy: ");
+                auto it = std::find_if(stocks.begin(), stocks.end(), [&stockSymbol](const Stock* stock) {
+                    return stock->symbol == stockSymbol;
+                });
+
+                if (it != stocks.end()) {
+                    int quantity = safeInput<int>("Enter quantity to buy: ");
+                    userPortfolio.buyStock(**it, quantity);
+                } else {
+                    std::cout << "Stock not found.\n";
+                }
+            } else if (choice == 2) {
+                std::string stockSymbol = safeInput<std::string>("Enter stock symbol to sell: ");
+                auto it = std::find_if(stocks.begin(), stocks.end(), [&stockSymbol](const Stock* stock) {
+                    return stock->symbol == stockSymbol;
+                });
+
+                if (it != stocks.end()) {
+                    int quantity = safeInput<int>("Enter quantity to sell: ");
+                    userPortfolio.sellStock(**it, quantity);
+                } else {
+                    std::cout << "Stock not found.\n";
+                }
+            } else if (choice == 3) {
+                userPortfolio.displayPortfolio(stocks);
+            } else if (choice == 4) {
+                displayStockPrices(stocks);
+            } else if (choice == 5) {
+                for (auto& stock : stocks) {
+                    stock->updatePrice();
+                    std::cout << "Updated Price of " << stock->symbol << ": $" << stock->price << std::endl;
+                }
+            }
+        } while (choice != 6);
+
+        std::cout << "Thank you for using the stock trading simulator!\n";
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+
+    for (auto stock : stocks) {
+        delete stock; // Clean up dynamic memory
+    }
+
+    return 0;
+}
